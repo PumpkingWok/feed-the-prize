@@ -4,7 +4,6 @@ pragma solidity ^0.6.0;
 
 import "./SafeMath.sol";
 import "./Ownable.sol";
-// import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol";
 
 abstract contract IdleDAIV3 {
     function mintIdleToken(uint256 _amount, bool _skipWholeRebalance) virtual public returns(uint256);
@@ -44,7 +43,6 @@ contract FeedThePrize is Ownable{
     
     IdleDAIV3 public idleP = IdleDAIV3(0x78751B12Da02728F467A44eAc40F5cbc16Bd7934);
     PoolTogetherDAI public ptP = PoolTogetherDAI(0x29fe7D60DdF151E5b52e5FAB4f1325da6b2bD958);
-    // IERC20 public daiInstance = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
     
     // Feed Pool functions
     
@@ -55,7 +53,7 @@ contract FeedThePrize is Ownable{
         
         uint256 idleA = 0;
         uint256 ptA = 0;
-        (ptA, idleA) = getExceedAndRebalanceAmount(amountToFeed);
+        (ptA, idleA) = getExceedAndRebalanceAmount(amountToFeed, true);
         
         if(idleA > 0) {
             uint256 mintedTokens = idleP.mintIdleToken(idleA, true);
@@ -76,7 +74,7 @@ contract FeedThePrize is Ownable{
     }
     
     function withdraw(uint256 _amount) public {
-        require(_amount > 0, "The amount to feed has to be greater than 0");
+        require(_amount > 0, "The amount to withdraw has to be greater than 0");
         
         uint256 amountToW = _amount;
         
@@ -84,7 +82,7 @@ contract FeedThePrize is Ownable{
        
         uint256 idleW = 0;
         uint256 ptW = 0;
-        (ptW, idleW) = getExceedAndRebalanceAmount(amountToW);
+        (ptW, idleW) = getExceedAndRebalanceAmount(amountToW, false);
        
         if (idleW > 0) {
             uint256[] memory empty;
@@ -96,7 +94,7 @@ contract FeedThePrize is Ownable{
        
         if (ptW > 0) {
             ptP.withdrawSponsorshipAndFee(ptW);
-            feedBook[msg.sender].sub(amountToW);
+            feedBook[msg.sender].sub(ptW);
             ptTotalA.sub(ptW);
             emit WithdrawPT(msg.sender, ptW);
         }
@@ -104,33 +102,52 @@ contract FeedThePrize is Ownable{
         emit Withdraw(msg.sender, amountToW);
     }
     
-    function getExceedAndRebalanceAmount(uint256 amount) public returns(uint256, uint256) {
+    function getExceedAndRebalanceAmount(uint256 amount, bool feed) public returns(uint256, uint256) {
         uint256 ptAmount = 0;
         uint256 idleAmount = 0;
         uint256 amountToSplit = 0;
         uint256 amountToRebalance = 0;
         uint256 idleBalance = getIdleBalance();
         
-        if (idleBalance.sub(ptTotalA) > 0) {
-            amountToRebalance = idleBalance.sub(ptTotalA);
-            if (amountToRebalance >= amount) {
-                ptAmount = amount;
-            } else {
-                ptAmount = amountToRebalance;
+        if(feed) {
+            if (idleBalance > ptTotalA) {
+                amountToRebalance = idleBalance.sub(ptTotalA);
+                if (amountToRebalance >= amount) {
+                    ptAmount = amount;
+                } else {
+                    ptAmount = amountToRebalance;
+                }
+            } else if(idleBalance < ptTotalA) {
+                amountToRebalance = ptTotalA.sub(idleBalance);
+                if (amountToRebalance >= amount) {
+                    idleAmount = amount;
+                } else {
+                    idleAmount = amountToRebalance;
+                }
             }
-        } else if(idleBalance.sub(ptTotalA) < 0) {
-            amountToRebalance = ptTotalA.sub(idleBalance);
-            if (amountToRebalance >= amount) {
-                idleAmount = amount;
-            } else {
-                idleAmount = amountToRebalance;
+        } else {
+            if (idleBalance > ptTotalA) {
+                amountToRebalance = idleBalance.sub(ptTotalA);
+                if (amountToRebalance >= amount) {
+                    idleAmount = amount;
+                } else {
+                    idleAmount = amountToRebalance;
+                }
+            } else if(idleBalance < ptTotalA) {
+                amountToRebalance = ptTotalA.sub(idleBalance);
+                if (amountToRebalance >= amount) {
+                    ptAmount = amount;
+                } else {
+                    ptAmount = amountToRebalance;
+                }
             }
         }
         
         if(ptAmount != amount && idleAmount != amount) {
             amountToSplit = amount.sub(amountToRebalance);
-            idleAmount.add(amountToSplit.div(2));
-            ptAmount.add(amountToSplit.sub(idleAmount));
+            uint256 amountSplitted = amountToSplit.div(2);
+            idleAmount.add(amountSplitted);
+            ptAmount.add(amountSplitted);
         }
         
         require(idleAmount.add(ptAmount) == amount, "The total amount has to be the same");
