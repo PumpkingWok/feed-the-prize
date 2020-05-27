@@ -9,6 +9,8 @@ abstract contract IdleDAIV3 {
     function mintIdleToken(uint256 _amount, bool _skipWholeRebalance) virtual public returns(uint256);
     function reedemIdleToken(uint256 _amount, bool _skipRebalance, uint256[] calldata _clientProtocolAmounts) virtual external returns(uint256);
     function balanceOf(address account) virtual public returns(uint256);
+    function tokenPrice() virtual public returns(uint256);
+    function tokenDecimals() virtual public returns(uint256);
 }
 
 abstract contract PoolTogetherDAI {
@@ -25,6 +27,7 @@ contract FeedThePrize is Ownable{
     
     using SafeMath for uint256;
     
+    // amount stored in DAI
     mapping(address => uint256) public feedBook;
     
     uint256 public idleTotalA = 0;
@@ -56,17 +59,16 @@ contract FeedThePrize is Ownable{
         (ptA, idleA) = getExceedAndRebalanceAmount(amountToFeed, true);
         
         if(idleA > 0) {
-            uint256 mintedTokens = idleP.mintIdleToken(idleA, true);
-            require(mintedTokens == idleA, "The amount minted has to be the same");
-            feedBook[msg.sender].add(idleA);
-            idleTotalA.add(idleA);
+            idleP.mintIdleToken(idleA, true);
+            feedBook[msg.sender] = feedBook[msg.sender].add(idleA);
+            idleTotalA = idleTotalA.add(idleA);
             emit FeedIdle(msg.sender, idleA);
         }
         
         if(ptA > 0) {
             ptP.depositSponsorship(ptA);
-            feedBook[msg.sender].add(ptA);
-            ptTotalA.add(ptA);
+            feedBook[msg.sender] = feedBook[msg.sender].add(ptA);
+            ptTotalA = ptTotalA.add(ptA);
             emit FeedPT(msg.sender, ptA);
         }
         
@@ -86,16 +88,17 @@ contract FeedThePrize is Ownable{
        
         if (idleW > 0) {
             uint256[] memory empty;
-            idleP.reedemIdleToken(idleW, true, empty);
-            feedBook[msg.sender].sub(idleW);
-            idleTotalA.sub(idleW);
+            uint256 idleTokenAmount = idleW.div(idleP.tokenPrice());
+            idleP.reedemIdleToken(idleTokenAmount, true, empty);
+            feedBook[msg.sender] = feedBook[msg.sender].sub(idleW);
+            idleTotalA = idleTotalA.sub(idleW);
             emit WithdrawIdle(msg.sender, idleW);
         }
        
         if (ptW > 0) {
             ptP.withdrawSponsorshipAndFee(ptW);
-            feedBook[msg.sender].sub(ptW);
-            ptTotalA.sub(ptW);
+            feedBook[msg.sender] = feedBook[msg.sender].sub(ptW);
+            ptTotalA = ptTotalA.sub(ptW);
             emit WithdrawPT(msg.sender, ptW);
         }
        
@@ -146,8 +149,8 @@ contract FeedThePrize is Ownable{
         if(ptAmount != amount && idleAmount != amount) {
             amountToSplit = amount.sub(amountToRebalance);
             uint256 amountSplitted = amountToSplit.div(2);
-            idleAmount.add(amountSplitted);
-            ptAmount.add(amountSplitted);
+            idleAmount = idleAmount.add(amountSplitted);
+            ptAmount = ptAmount.add(amountSplitted);
         }
         
         require(idleAmount.add(ptAmount) == amount, "The total amount has to be the same");
@@ -155,8 +158,9 @@ contract FeedThePrize is Ownable{
         return (ptAmount, idleAmount);
     }
     
+    // Return balance in DAI
     function getIdleBalance() public returns(uint256) {
-        return idleP.balanceOf(address(this));
+        return idleP.balanceOf(address(this)).mul(idleP.tokenPrice());
     }
     
     function getPTBalance() public returns(uint256) {
